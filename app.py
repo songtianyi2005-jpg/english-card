@@ -3,6 +3,9 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
+# 判断是否在云端运行
+IS_CLOUD = os.environ.get("HOME") == "/home/appuser"  # 这是 Streamlit 云端的默认路径
+
 st.set_page_config(layout="wide")
 
 FILE = "words.csv"
@@ -22,11 +25,18 @@ def delete_word(target_word):
         writer.writeheader()
         writer.writerows(rows)
 
-if not os.path.exists(FILE):
-    st.warning("还没有words.csv，先去运行collect_words.py收集几个词吧。")
+# 新增：文件上传组件
+uploaded_file = st.file_uploader("请上传你的 words.csv 文件", type=["csv"])
+
+if uploaded_file is not None:
+    # 如果用户上传了文件，直接读取上传的内容
+    import io
+    stringio = io.StringIO(uploaded_file.getvalue().decode("utf-8"))
+    rows = list(csv.DictReader(stringio))
+else:
+    # 如果还没上传，给出提示并停止渲染卡片
+    st.info("👆 请先上传你在电脑上收集好的 words.csv 文件。")
     st.stop()
-with open(FILE, "r", encoding='UTF-8', newline="") as f:
-    rows = list(csv.DictReader(f))
 
 st.write(f'共收集了{len(rows)}个单词')
 
@@ -83,10 +93,13 @@ for row in rows:
             components.html(html_btn, height=40)
 
         with col2:
-            # 新增：删除按钮
-            if st.button("🗑️ 删除", key=f"del_{row['word']}", use_container_width=True):
-                delete_word(row["word"])  # 调用删除函数
-                st.rerun()  # 强制网页重新加载，立刻刷新列表
+            # 如果在云端，显示下载按钮；如果在本地，显示删除按钮
+            if IS_CLOUD:
+                st.caption("云端暂不支持直接删除")
+            else:
+                if st.button("🗑️ 删除", key=f"del_{row['word']}", use_container_width=True):
+                    delete_word(row["word"])
+                    st.rerun()
 
         with col3:
             with st.expander("点击查看释义和例句"):
@@ -97,4 +110,18 @@ for row in rows:
                     st.write(f'例句：{example}')
 
         st.caption(f'记录时间：{row["time"]}')
+
+# 在 app.py 的最底部加上
+st.divider()
+if uploaded_file is not None:
+    # 把你当前看到的 rows 重新拼成 CSV 文本下载
+    csv_data = "word,time,meaning,example\n"
+    for r in rows:
+        csv_data += f"{r['word']},{r['time']},{r.get('meaning','')},{r.get('example','')}\n"
+    st.download_button(
+        label="⬇️ 下载当前数据备份",
+        data=csv_data,
+        file_name="my_words_backup.csv",
+        mime="text/csv"
+    )
 
