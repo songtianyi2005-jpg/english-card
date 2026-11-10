@@ -114,13 +114,9 @@ for row in review_words:
             components.html(html_btn, height=40)
 
         with col2:
-            # 如果在云端，显示下载按钮；如果在本地，显示删除按钮
-            if IS_CLOUD:
-                st.caption("云端暂不支持直接删除")
-            else:
-                if st.button("🗑️ 删除", key=f"del_{row['word']}", use_container_width=True):
-                    delete_word(row["word"])
-                    st.rerun()
+            if st.button("🗑️ 删除", key=f"del_{row['word']}", use_container_width=True):
+                delete_word(row["word"])
+                st.rerun()
 
         with col3:
             with st.expander("点击查看释义和例句"):
