@@ -19,7 +19,7 @@ IS_CLOUD = os.environ.get("HOME") == "/home/appuser"  # 这是 Streamlit 云端�
 st.set_page_config(layout="wide")
 
 FILE = "words.csv"
-st.title("宋国强的单词卡片")
+st.title("我的单词卡片")
 
 def delete_word(target_word):
     supabase.table("words").delete().eq("word", target_word).execute()
