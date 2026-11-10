@@ -1,7 +1,17 @@
 import csv
 import os
+import datetime
 import streamlit as st
 import streamlit.components.v1 as components
+from supabase import create_client, Client
+from dotenv import load_dotenv
+
+load_dotenv()
+url = os.environ.get("SUPABASE_URL")
+key = os.environ.get("SUPABASE_KEY")
+supabase = create_client(url, key)
+
+today = datetime.date.today().isoformat()
 
 # 判断是否在云端运行
 IS_CLOUD = os.environ.get("HOME") == "/home/appuser"  # 这是 Streamlit 云端的默认路径
@@ -9,38 +19,49 @@ IS_CLOUD = os.environ.get("HOME") == "/home/appuser"  # 这是 Streamlit 云端�
 st.set_page_config(layout="wide")
 
 FILE = "words.csv"
-st.title("我的单词卡片")
+st.title("宋国强的单词卡片")
 
 def delete_word(target_word):
-    rows = []
-    with open(FILE, "r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames
-        for row in reader:
-            if row["word"] != target_word:
-                rows.append(row)
+    supabase.table("words").delete().eq("word", target_word).execute()
 
-    with open(FILE, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+def update_memory(target_word, success):
+    # 先从云端查这个词
+    res = supabase.table("words").select("*").eq("word", target_word).execute()
+    if not res.data:
+        return
+    row = res.data[0]
 
-# 新增：文件上传组件
-uploaded_file = st.file_uploader("请上传你的 words.csv 文件", type=["csv"])
+    current_interval = int(row.get("interval") or 1)
+    new_interval = current_interval * 2 if success else 1
 
-if uploaded_file is not None:
-    # 如果用户上传了文件，直接读取上传的内容
-    import io
-    stringio = io.StringIO(uploaded_file.getvalue().decode("utf-8"))
-    rows = list(csv.DictReader(stringio))
-else:
-    # 如果还没上传，给出提示并停止渲染卡片
-    st.info("👆 请先上传你在电脑上收集好的 words.csv 文件。")
+    import datetime
+    next_date = (datetime.date.today() + datetime.timedelta(days=new_interval)).isoformat()
+
+    # 更新云端数据
+    supabase.table("words").update({
+        "interval": new_interval,
+        "next_review": next_date
+    }).eq("word", target_word).execute()
+
+    # 从云端查数据
+response = supabase.table("words").select("*").execute()
+rows = response.data
+review_words = []
+for row in rows:
+    next_review = row["next_review"]
+    if next_review <= today:
+        review_words.append(row)
+
+if len(review_words) == 0:
+    st.balloons()
+    st.success("🎉 太棒了！今天的单词都复习完了！明天再来吧。")
     st.stop()
+
+st.info(f'今天还有{len(review_words)}个单词需要复习。')
 
 st.write(f'共收集了{len(rows)}个单词')
 
-for row in rows:
+for row in review_words:
     with st.container(border=True):
         st.subheader(row['word'])
 
@@ -109,19 +130,15 @@ for row in rows:
                 if example:
                     st.write(f'例句：{example}')
 
-        st.caption(f'记录时间：{row["time"]}')
+        st.write("---")
+        col_a, col_b = st.columns(2)
+        if col_a.button("❌ 忘记了", key=f"forget_{row['word']}", use_container_width=True):
+            update_memory(row["word"], success=False)
+            st.rerun()
 
-# 在 app.py 的最底部加上
-st.divider()
-if uploaded_file is not None:
-    # 把你当前看到的 rows 重新拼成 CSV 文本下载
-    csv_data = "word,time,meaning,example\n"
-    for r in rows:
-        csv_data += f"{r['word']},{r['time']},{r.get('meaning','')},{r.get('example','')}\n"
-    st.download_button(
-        label="⬇️ 下载当前数据备份",
-        data=csv_data,
-        file_name="my_words_backup.csv",
-        mime="text/csv"
-    )
+        if col_b.button("✅ 记住了", key=f"know_{row['word']}", use_container_width=True):
+            update_memory(row["word"], success=True)
+            st.rerun()
+
+        st.caption(f'记录时间：{row["time"]}')
 
